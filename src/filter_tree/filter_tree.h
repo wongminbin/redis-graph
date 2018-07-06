@@ -58,6 +58,29 @@ struct FT_FilterNode {
 
 typedef struct FT_FilterNode FT_FilterNode;
 
+typedef enum {
+  FT_PRED,
+  FT_INTERNAL,
+} FT_NodeType;
+
+struct FT_Node;
+
+typedef struct {
+  struct FT_Node **children;
+  int child_count;
+  int allocated_count;
+  int op;
+} FT_Internal;
+
+struct FT_Node {
+  union {
+    FT_Internal internal;
+    FT_PredicateNode pred;
+  };
+  FT_NodeType t;
+};
+
+typedef struct FT_Node FT_Node;
 /* Given AST's WHERE subtree constructs a filter tree
  * This is done to speed up the filtering process. */
 FT_FilterNode* BuildFiltersTree(const AST_FilterNode *root);
