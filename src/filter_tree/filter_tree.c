@@ -242,17 +242,16 @@ int FilterTree_applyFilters(const FT_FilterNode* root) {
         return _applyPredicateFilters(root);
     }
 
-    /* root->t == FT_N_COND, visit left subtree. */
-    int pass = FilterTree_applyFilters(LeftChild(root));
-    
-    if(root->cond.op == AND && pass == 1) {
-        /* Visit right subtree. */
-        pass *= FilterTree_applyFilters(RightChild(root));
-    }
-
-    if(root->cond.op == OR && pass == 0) {
-        /* Visit right subtree. */
-        pass = FilterTree_applyFilters(RightChild(root));
+    int pass;
+    for (int i = 0; i < root->cond.child_count; i ++) {
+      pass = FilterTree_applyFilters(root->cond.children[i]);
+      if (root->cond.op == AND && pass == 0) {
+        // Fail if any filter does not pass on an AND condition
+        return 0;
+      } else if (root->cond.op == OR && pass == 1) {
+        // Succeed if any filter passes on an OR condition
+        return 1;
+      }
     }
 
     return pass;
@@ -261,8 +260,9 @@ int FilterTree_applyFilters(const FT_FilterNode* root) {
 void FilterTree_bindEntities(FT_FilterNode* root, const QueryGraph *g) {
     switch(root->t) {
         case FT_N_COND:
-            FilterTree_bindEntities(root->cond.left, g);
-            FilterTree_bindEntities(root->cond.right, g);
+            for (int i = 0; i < root->cond.child_count; i ++) {
+                FilterTree_bindEntities(root->cond.children[i], g);
+            }
             break;
         case FT_N_PRED:
             root->pred.Lop.e = QueryGraph_GetEntityRef(g, root->pred.Lop.alias);

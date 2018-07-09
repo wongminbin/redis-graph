@@ -65,10 +65,7 @@ FT_FilterNode* BuildFiltersTree(const AST_FilterNode *root, FT_FilterNode *t);
 
 FT_FilterNode* CreateVaryingFilterNode(const char *LAlias, const char *LProperty, const char *RAlias, const char *RProperty, int op);
 FT_FilterNode* CreateConstFilterNode(const char *alias, const char *property, int op, SIValue val);
-FT_FilterNode* CreateCondFilterNode(int op);
-
-FT_FilterNode *AppendLeftChild(FT_FilterNode *root, FT_FilterNode *child);
-FT_FilterNode *AppendRightChild(FT_FilterNode *root, FT_FilterNode *child);
+FT_FilterNode* CreateConditionNode(int op);
 
 /* Runs val through the filter tree. */
 int FilterTree_applyFilters(const FT_FilterNode* root);
