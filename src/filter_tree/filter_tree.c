@@ -5,11 +5,9 @@
 #include "../query_executor.h"
 #include "../rmutil/vector.h"
 
+// TODO allows for better printing, but may not belong here
 // Lookup map for converting op numbers to strings
 const char* ops[] = {"", "OR", "AND", "ADD", "DASH", "MUL", "DIV", "EQ", "GT", "GE", "LT", "LE"};
-
-FT_FilterNode* LeftChild(const FT_FilterNode *node) { return node->cond.left; }
-FT_FilterNode* RightChild(const FT_FilterNode *node) { return node->cond.right; }
 
 int static inline IsNodeConstantPredicate(const FT_FilterNode *node) {
     return (node->t == FT_N_PRED && node->pred.t == FT_N_CONSTANT);
@@ -98,222 +96,66 @@ FT_FilterNode* CreateConstFilterNode(const char *alias, const char *property, in
     return filterNode;
 }
 
-FT_FilterNode* CreateCondFilterNode(int op) {
-    FT_FilterNode* filterNode = (FT_FilterNode*)malloc(sizeof(FT_FilterNode));
-    filterNode->t = FT_N_COND;
-    filterNode->cond.op = op;
-    return filterNode;
-}
+FT_FilterNode* CreateConditionNode(int op) {
+  FT_FilterNode *n = malloc(sizeof(FT_FilterNode));
 
-FT_FilterNode *AppendLeftChild(FT_FilterNode *root, FT_FilterNode *child) {
-    root->cond.left = child;
-    return root->cond.left;
-}
-
-FT_FilterNode *AppendRightChild(FT_FilterNode *root, FT_FilterNode *child) {
-    root->cond.right = child;
-    return root->cond.right;
-}
-
-FT_FilterNode* _CreateVaryingFilterNode(AST_PredicateNode n) {
-    return CreateVaryingFilterNode(n.alias, n.property, n.nodeVal.alias, n.nodeVal.property, n.op);
-}
-
-FT_FilterNode* _CreateConstFilterNode(AST_PredicateNode n) {
-    return CreateConstFilterNode(n.alias, n.property, n.op, n.constVal);
-}
-
-void _FilterTree_SubTrees(const FT_FilterNode *root, Vector *sub_trees) {
-    if (root == NULL) return;
-
-    switch(root->t) {
-        case FT_N_PRED:
-            /* This is a simple predicate tree, can not traverse further. */
-            Vector_Push(sub_trees, root);
-            break;
-        case FT_N_COND:
-            switch(root->cond.op) {
-                case AND:
-                    /* Break AND down to its components. */
-                    _FilterTree_SubTrees(root->cond.left, sub_trees);
-                    _FilterTree_SubTrees(root->cond.right, sub_trees);
-                    break;
-                case OR:
-                    /* OR tree must be return as is. */
-                    Vector_Push(sub_trees, root);
-                    break;
-                default:
-                    assert(0);
-            }
-            break;
-        default:
-            assert(0);
-            break;
-    }
-}
-
-Vector* FilterTree_SubTrees(const FT_FilterNode *root) {
-    Vector *sub_trees = NewVector(FT_FilterNode *, 1);
-    _FilterTree_SubTrees(root, sub_trees);
-    return sub_trees;
-}
-
-FT_PredicateNode FT_NewVaryingPred(const char *LAlias, const char *LProperty, const char *RAlias, const char *RProperty, int op) {
-    // At the moment only numerical comparison is supported
-    // Assuming compared data is double.
-    // TODO: support all types of possible SIValues.
-    CmpFunc compareFunc = cmp_double;
-    FT_PredicateNode pred;
-    pred.t = FT_N_VARYING;
-
-    pred.Lop.alias = strdup(LAlias);
-    pred.Lop.property = strdup(LProperty);
-    pred.Lop.e = NULL;
-    pred.Rop.alias = strdup(RAlias);
-    pred.Rop.property = strdup(RProperty);
-    pred.Rop.e = NULL;
-
-    pred.op = op;
-    pred.cf = compareFunc;
-    return pred;
-}
-
-FT_PredicateNode FT_NewConstPred(const char *alias, const char *property, int op, SIValue val) {
-    CmpFunc compareFunc = NULL;
-    FT_PredicateNode pred;
-    pred.t = FT_N_CONSTANT;
-
-    // Find out which compare function should we use.
-    switch(val.type) {
-        case T_STRING:
-            compareFunc = cmp_string;
-            break;
-        case T_INT32:
-            compareFunc = cmp_int;
-            break;
-        case T_INT64:
-            compareFunc = cmp_long;
-            break;
-        case T_UINT:
-            compareFunc = cmp_uint;
-            break;
-        case T_BOOL:
-            compareFunc = cmp_int;
-            break;
-        case T_FLOAT:
-            compareFunc = cmp_float;
-            break;
-        case T_DOUBLE:
-            compareFunc = cmp_double;
-            break;
-        default:
-            compareFunc = NULL;
-            break;
-    }
-
-    // Couldn't figure out which compare function to use.
-    if(compareFunc == NULL) {
-      // ERROR.
-      assert(0);
-    }
-
-    pred.Lop.alias = strdup(alias);
-    pred.Lop.property = strdup(property);
-    pred.Lop.e = NULL;
-
-    pred.op = op;
-    pred.constVal = val;
-    pred.cf = compareFunc;
-    return pred;
-}
-
-FT_Node* New_FT_Node(int allocate_for) {
-  FT_Node *n = malloc(sizeof(FT_Node));
-  n->t = FT_INTERNAL;
-  n->internal.children = malloc(allocate_for * sizeof(FT_Node));
-  n->internal.child_count = 0;
-  n->internal.allocated_count = allocate_for;
+  n->t = FT_N_COND;
+  n->cond.allocated_count = 2;
+  n->cond.children = malloc(2 * sizeof(FT_FilterNode));
+  n->cond.child_count = 0;
+  n->cond.op = op;
 
   return n;
 }
 
-FT_Node* create_pred(const AST_PredicateNode *constraint) {
-  FT_Node *n = malloc(sizeof(FT_Node));
+void FT_AddPredicate(const AST_FilterNode *root, FT_FilterNode *ft) {
+  assert(ft && ft->t == FT_N_COND);
+  if (ft->cond.allocated_count <= ft->cond.child_count) {
+    ft->cond.allocated_count *= 2;
+    realloc(ft->cond.children, ft->cond.allocated_count * sizeof(FT_FilterNode*));
+  }
+
+  FT_FilterNode *n = malloc(sizeof(FT_FilterNode));
   n->t = N_PRED;
 
-  if(constraint->t == N_CONSTANT) {
-    n->pred = FT_NewConstPred(constraint->alias, constraint->property, constraint->op, constraint->constVal);
+  if(root->pn.t == N_CONSTANT) {
+    n = CreateConstFilterNode(root->pn.alias, root->pn.property,
+        root->pn.op, root->pn.constVal);
   } else {
-    n->pred = FT_NewVaryingPred(constraint->alias, constraint->property, constraint->nodeVal.alias, constraint->nodeVal.property, constraint->op);
+    n = CreateVaryingFilterNode(root->pn.alias, root->pn.property,
+        root->pn.nodeVal.alias, root->pn.nodeVal.property, root->pn.op);
   }
-
-  return n;
+  ft->cond.children[ft->cond.child_count] = n;
+  ft->cond.child_count ++;
 }
 
-void FT_AddPredicate(FT_Internal *root, const AST_PredicateNode *constraint) {
-  assert(root);
-  if (root->allocated_count <= root->child_count) {
-    root->allocated_count *= 2;
-    realloc(root->children, root->allocated_count * sizeof(FT_Node*));
-  }
-
-  root->children[root->child_count] = create_pred(constraint);
-  root->child_count ++;
-}
-
-/*
- * void FT_AddNode(FT_Internal *root, FT_Node *child) {
- *   if (root->allocated_count <= root->child_count) {
- *     root->allocated_count *= 2;
- *     realloc(root->children, root->allocated_count * sizeof(FT_Node*));
- *   }
- *   root->children[root->child_count] = child;
- *   root->child_count ++;
- * }
- */
-
-/*
- * void FT_MigrateChild(FT_Node *new_root, FT_Node *old_root, int child_idx) {
- *   assert(new_root->t == FT_INTERNAL);
- *
- *   FT_Node *migrant = old_root->internal.children[child_idx];
- *   FT_AddNode(&new_root->internal, migrant);
- *   old_root->internal.child_count --;
- * }
- */
-
-// Converts AST nodes to FT nodes
-
-FT_Node* NewBuildFiltersTree(const AST_FilterNode *root, FT_Node *ft) {
-  /* TODO This approach always has a node of type INTERNAL as the root.
+FT_FilterNode* BuildFiltersTree(const AST_FilterNode *root, FT_FilterNode *ft) {
+  /* TODO This approach always has a node of type cond as the root.
      If there is only one filter, it will be an AND with that single predicate
      as a child.
      I feel like that may allow for simpler traversals, but it may not, in which case
      this approach should be updated.
-     In any case, it probably shouldn't be called INTERNAL if it is also the leaf.
    */
   if (ft == NULL) {
-    ft = New_FT_Node(2);
     // TODO make real UNSET op type
-    ft->internal.op = 0;
+    ft = CreateConditionNode(0);
   }
 
   if(root->t == N_PRED) {
-    if (ft->internal.op == 0) ft->internal.op = AND;
-    FT_AddPredicate(&ft->internal, &root->pn);
+    if (ft->cond.op == 0) ft->cond.op = AND;
+    FT_AddPredicate(root, ft);
     return ft;
   }
 
-  if (ft->internal.op == 0) ft->internal.op = root->cn.op;
+  if (ft->cond.op == 0) ft->cond.op = root->cn.op;
 
-  if (root->cn.op == ft->internal.op) {
+  if (root->cn.op == ft->cond.op) {
     // Broaden the current node while the operation (AND/OR) is same
-    NewBuildFiltersTree(root->cn.left, ft);
-    NewBuildFiltersTree(root->cn.right, ft);
+    BuildFiltersTree(root->cn.left, ft);
+    BuildFiltersTree(root->cn.right, ft);
   } else {
     // Deepen the tree when operation differs
-    FT_Node *new_internal = New_FT_Node(2);
-    new_internal->internal.op = root->cn.op;
+    FT_FilterNode *new_internal = CreateConditionNode(root->cn.op);
     /* TODO:
      * The OpenCypher docs are not very explicit about filter operation precedence.
      * This link provides good experimental rules for Neo4j:
@@ -323,72 +165,19 @@ FT_Node* NewBuildFiltersTree(const AST_FilterNode *root, FT_Node *ft) {
      * Currently, this approach considers AND and OR to be of equal precedence, and exclusively sets by query order.
      * Should add parens support and break ties in favor of ANDs
      */
-    NewBuildFiltersTree(root->cn.left, new_internal);
-    NewBuildFiltersTree(root->cn.right, new_internal);
-    ft->internal.children[ft->internal.child_count++] = new_internal;
+    BuildFiltersTree(root->cn.left, new_internal);
+    BuildFiltersTree(root->cn.right, new_internal);
+    ft->cond.children[ft->cond.child_count++] = new_internal;
     // TODO When parens and AND precedence are in play, we must be able to demote children to lower level
     /*
-     * if (new_internal->internal.child_count > 1) { // not quite like this, because we build conditionals before preds
-     *   FT_MigrateChild(new_internal, ft, ft->internal.child_count - 1);
+     * if (new_internal->cond.child_count > 1) { // not quite like this, because we build conditionals before preds
+     *   FT_MigrateChild(new_internal, ft, ft->cond.child_count - 1);
      * }
      */
 
   }
 
   return ft;
-}
-
-FT_FilterNode* BuildFiltersTree(const AST_FilterNode *root) {
-    if(root->t == N_PRED) {
-        if(root->pn.t == N_CONSTANT) {
-            return _CreateConstFilterNode(root->pn);
-        } else {
-            return _CreateVaryingFilterNode(root->pn);
-        }
-	}
-
-    // root->t == N_COND
-    // Create condition node
-    FT_FilterNode* filterNode = CreateCondFilterNode(root->cn.op);
-    AppendLeftChild(filterNode, BuildFiltersTree(root->cn.left));
-    AppendRightChild(filterNode, BuildFiltersTree(root->cn.right));
-	return filterNode;
-}
-
-void FT_Print(FT_Node *root, int indent) {
-  if (root == NULL) return;
-
-  printf("%*s", indent, "");
-  if (root->t == FT_PRED) {
-    if (root->pred.t == FT_N_CONSTANT) {
-      char value[64] = {0};
-      SIValue_ToString(root->pred.constVal, value, 64);
-      printf("%s.%s %s %s\n",
-          root->pred.Lop.alias,
-          root->pred.Lop.property,
-          ops[root->pred.op],
-          value
-          );
-    } else {
-      // varying
-      printf("%s.%s %s %s.%s\n",
-          root->pred.Lop.alias,
-          root->pred.Lop.property,
-          ops[root->pred.op],
-          root->pred.Rop.alias,
-          root->pred.Rop.property
-          );
-    }
-    return;
-  }
-
-  // conditional node
-  FT_Internal in = root->internal;
-  // printf("internal %s node with %d children\n", ops[in.op], in.child_count);
-  printf("%s\n", ops[in.op]);
-  for (int i = 0; i < in.child_count; i ++) {
-    FT_Print(in.children[i], indent + 4);
-  }
 }
 
 /* Applies a single filter to a single result.
@@ -493,8 +282,9 @@ void _FilterTree_CollectAliases(const FT_FilterNode *root, TrieMap *aliases) {
     switch(root->t) {
         case FT_N_COND:
         {
-            _FilterTree_CollectAliases(root->cond.left, aliases);
-            _FilterTree_CollectAliases(root->cond.right, aliases);
+            for (int i = 0; i < root->cond.child_count; i ++) {
+                _FilterTree_CollectAliases(root->cond.children[i], aliases);
+            }
             break;
         }
         case FT_N_PRED:
@@ -535,10 +325,10 @@ Vector *FilterTree_CollectAliases(const FT_FilterNode *root) {
     return aliases;
 }
 
-void _FilterTree_Print(const FT_FilterNode *root, int ident) {
-    // Ident
-    printf("%*s", ident, "");
-    
+void _FilterTree_Print(const FT_FilterNode *root, int indent) {
+    if (root == NULL) return;
+
+    printf("%*s", indent, "");
     if(IsNodeConstantPredicate(root)) {
         char value[64] = {0};
         SIValue_ToString(root->pred.constVal, value, 64);
@@ -546,8 +336,7 @@ void _FilterTree_Print(const FT_FilterNode *root, int ident) {
             root->pred.Lop.alias,
             root->pred.Lop.property,
             ops[root->pred.op],
-            value
-        );
+            value);
         return;
     }
     if(IsNodeVaryingPredicate(root)) {
@@ -556,14 +345,16 @@ void _FilterTree_Print(const FT_FilterNode *root, int ident) {
             root->pred.Lop.property,
             ops[root->pred.op],
             root->pred.Rop.alias,
-            root->pred.Rop.property
-        );
+            root->pred.Rop.property);
         return;
     }
 
-    printf("%s\n", ops[root->cond.op]);
-    _FilterTree_Print(LeftChild(root), ident+4);
-    _FilterTree_Print(RightChild(root), ident+4);
+    // conditional node
+    FT_ConditionNode in = root->cond;
+    printf("%s\n", ops[in.op]);
+    for (int i = 0; i < in.child_count; i ++) {
+        _FilterTree_Print(in.children[i], indent + 4);
+    }
 }
 
 void FilterTree_Print(const FT_FilterNode *root) {
@@ -599,8 +390,10 @@ void FilterTree_Free(FT_FilterNode *root) {
     if(IsNodePredicate(root)) {
         _FilterTree_FreePredNode(root->pred);
     } else {
-        FilterTree_Free(root->cond.left);
-        FilterTree_Free(root->cond.right);
+        for (int i = 0; i < root->cond.child_count; i ++) {
+            FilterTree_Free(root->cond.children[i]);
+            free(root->cond.children);
+        }
     }
 
     free(root);
