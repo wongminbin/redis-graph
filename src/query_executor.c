@@ -76,7 +76,8 @@ void ReturnClause_ExpandCollapsedNodes(RedisModuleCtx *ctx, AST_Query *ast, cons
             if(collapsed_entity == NULL) {
                 /* Invalid query, return clause refers to none existing entity. */
                 /* TODO: Validate query. */
-                return;
+                Free_AST_ReturnElementNode(ret_elem);
+                continue;
             }
 
             /* Find label's properties. */
